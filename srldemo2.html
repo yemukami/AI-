@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SRL分析・送信機能デモ画面（修正版）</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Helvetica Neue','Arial','Hiragino Kaku Gothic ProN','Hiragino Sans','Meiryo',sans-serif; background-color: #f0f2f5; }
+        .chat-container { max-width: 400px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .ai-avatar { width: 120px; height: 120px; background-color: #e3f2fd; border-radius: 50%; display: flex; justify-content: center; align-items: center; position: relative; border: 4px solid white; }
+        .ai-avatar::before, .ai-avatar::after { content: ''; position: absolute; width: 12px; height: 24px; background-color: #bbdefb; border-radius: 6px; }
+        .ai-avatar::before { left: 25px; transform: rotate(-15deg); }
+        .ai-avatar::after { right: 25px; transform: rotate(15deg); }
+        .ear-icon { position: absolute; top: 15px; right: 15px; width: 24px; height: 24px; background-color: #ffeb3b; border-radius: 50%; display: flex; justify-content: center; align-items: center; font-size: 14px; font-weight: bold; transform: rotate(15deg); }
+        .stop-button { background-color: #ef5350; color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+        .demo-button { background-color: #1a73e8; color: white; transition: background-color 0.3s; }
+        .demo-button:hover { background-color: #185abc; }
+        .demo-button:disabled { background-color: #9e9e9e; cursor: not-allowed; }
+        .modal-overlay { position: fixed; inset: 0; background-color: rgba(0,0,0,0.6); display: flex; justify-content: center; align-items: center; z-index: 1000; }
+        .modal-content { background-color: white; padding: 2rem; border-radius: 0.75rem; max-width: 500px; width: 90%; box-shadow: 0 5px 15px rgba(0,0,0,0.3); text-align: center; }
+        .modal-message pre { display: block; width: 100%; white-space: pre-wrap; word-wrap: break-word; overflow-wrap: break-word; text-align: left; background-color: #f8f9fa; padding: 1rem; border-radius: 0.5rem; max-height: 40vh; overflow-y: auto; font-size: 14px; line-height: 1.5; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg);} 100% { transform: rotate(360deg);} }
+    </style>
+    <meta name="referrer" content="no-referrer">
+</head>
+<body class="bg-gray-100 flex flex-col items-center justify-center min-h-screen p-4">
+    <h1 class="text-2xl font-bold text-gray-800 mb-6">SRL分析・送信機能デモ画面（修正版）</h1>
+
+    <div class="chat-container w-full bg-white rounded-2xl p-6 mb-6">
+        <header class="flex justify-between items-center mb-6">
+            <button class="text-gray-600">&lt; 戻る</button>
+            <span class="font-bold text-lg">AIとおしゃべり</span>
+            <span class="text-orange-500 font-semibold">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline-block mr-1" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.414-1.415L11 9.586V6z" clip-rule="evenodd" /></svg>
+                02:57
+            </span>
+        </header>
+        <div class="flex flex-col items-center space-y-6">
+            <div class="ai-avatar"><div class="ear-icon">👂</div></div>
+            <span class="bg-green-100 text-green-800 text-sm font-medium px-4 py-1 rounded-full">聞いています</span>
+            <div class="bg-blue-50 w-full p-4 rounded-xl">
+                <p class="text-sm text-gray-500 mb-1">💬 AIのメッセージ</p>
+                <p class="text-gray-800 text-center">こんにちは、無理しなくていいからね😊</p>
+            </div>
+            <button class="stop-button font-bold py-3 px-8 rounded-full">ストップ</button>
+        </div>
+    </div>
+
+    <div class="w-full max-w-lg bg-white rounded-2xl p-6 shadow-lg space-y-3">
+        <div>
+            <label for="apiKey" class="block text-sm font-medium text-gray-700 mb-1">OpenAI APIキー（ローカル保存されます）</label>
+            <input id="apiKey" type="password" class="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" placeholder="sk-...">
+            <p class="text-xs text-gray-500 mt-1">注意：ブラウザから直接APIを呼び出すのは推奨されません。実運用はサーバ経由で行ってください。</p>
+        </div>
+        <div>
+            <label for="conversationHistory" class="block text-lg font-semibold text-gray-700 mb-2">会話履歴（単回）</label>
+            <textarea id="conversationHistory" rows="10" class="w-full border border-gray-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" placeholder="ここにAIと子どもの会話履歴を貼り付けてください..."></textarea>
+        </div>
+        <div>
+            <label for="pastAnalyses" class="block text-lg font-semibold text-gray-700 mb-2">過去解析結果（複数回・まとめ貼付）</label>
+            <textarea id="pastAnalyses" rows="10" class="w-full border border-gray-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" placeholder="例）これまでの解析JSONや要約テキストを、古い→新しい順で続けて貼り付けてください。\n（処理は後で実装します）"></textarea>
+            <p class="text-xs text-gray-500 mt-1">複数回分の解析結果（JSON/テキスト可）を時系列で貼り付け。今は入力のみ対応です。</p>
+        </div>
+        <div>
+            <label for="multiJsonOut" class="block text-lg font-semibold text-gray-700 mb-2">複数回分析（保存用JSON）</label>
+            <textarea id="multiJsonOut" rows="10" readonly class="w-full border border-gray-300 bg-gray-50 rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" placeholder="ここに複数回分析の保存用JSONが表示されます（モーダル表示の元データ）。"></textarea>
+            <p class="text-xs text-gray-500 mt-1">モーダルの「１ヶ月内での変化」に用いた集計を、保存しやすいJSONで出力します。</p>
+        </div>
+        <button id="demoButton" class="demo-button w-full mt-2 font-bold py-3 px-4 rounded-lg text-lg">デモを実行</button>
+    </div>
+
+    <div id="modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <h2 id="modalTitle" class="text-xl font-bold mb-4"></h2>
+            <div id="modalMessage" class="modal-message text-gray-700 mb-6"></div>
+            <button id="closeModalButton" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded-lg transition">閉じる</button>
+        </div>
+    </div>
+
+    <script>
+        const demoButton = document.getElementById('demoButton');
+        const conversationHistoryTextarea = document.getElementById('conversationHistory');
+        const pastAnalysesTextarea = document.getElementById('pastAnalyses');
+        const multiJsonOut = document.getElementById('multiJsonOut');
+        const modal = document.getElementById('modal');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalMessage = document.getElementById('modalMessage');
+        const closeModalButton = document.getElementById('closeModalButton');
+        const apiKeyInput = document.getElementById('apiKey');
+
+        // APIキーの永続化（localStorage）
+        const LS_KEY = 'openai_api_key';
+        apiKeyInput.value = localStorage.getItem(LS_KEY) || '';
+        apiKeyInput.addEventListener('input', () => {
+            localStorage.setItem(LS_KEY, apiKeyInput.value.trim());
+        });
+
+        // --- サンプルの会話履歴 ---
+        const sampleConversation = `
+AI: こんにちは！宿題は終わった？
+子: うん、だいたいね。でも算数の文章問題でちょっと詰まってるんだ。
+AI: そっか。どの問題かわかる？
+子: えっと、「速さ」のところ。いつもここで間違えちゃうんだよね。
+AI: なるほどね。「速さ」の問題は、図を書いてみるとわかりやすくなることがあるよ。前にやったときみたいに、線を描いて距離と時間を書き込んでみるのはどうかな？
+子: あ、そのやり方か！前回それでうまくいったのを思い出した。やってみる！
+AI: うん！頑張って！もしわからなかったら、また教えてね。
+子: できた！図を書いたらすぐわかった！ありがとう！次は国語の漢字練習する。`;
+        conversationHistoryTextarea.value = sampleConversation;
+        // --- ここまで ---
+
+        const basePrompt = `会話SRL解析　v0.3 改
+あなたは教育心理×会話分析のアナリストです。与えられるのは「AIと子どもの往復会話のプレーンテキスト」だけです。
+このテキストから、自己調整学習（SRL）と転移（near/far）の兆候を必ず原文引用に基づいて判定してください。
+出力はSTRICT JSONのみです（コードブロックや説明文を付けない）。
+
+【はしごかけ（AI提案と受容）】
+- AI発話に含まれる「学びや行動を支える提案」をはしごかけ(scaffolding)とする。  
+- 種類（form）："supportive"（安心化・負担軽減の工夫）/ "directive"（具体的な指示）/ "option"（選択肢提示）/ "ambiguous"。  
+- 子どもの応答から受容度(acceptance)を 0=拒否 / 1=中立 / 2=受容 で判定する。  
+- 判定根拠として、AI提案発話と子ども応答発話の短い引用を必ず添付する（各25字以内）。  
+- 結果は "scaffolding" 配列に格納する（最大5件・無理な生成はしない）。
+
+【前提とルール】
+- 会話はAIと子の往復。行頭に役割が無い場合は原則「AI→子」の交互と仮定。ただし内容（疑問/促し=AI、体験叙述=子）から矛盾が明らかなときは役割を修正する。  
+- 曖昧な役割は evidence から除外し、flags:["役割曖昧"] を付与する。  
+- 過剰解釈は禁止。各判定には子どもの発話からの短い引用（25字以内）を必ず添付する。  
+- 方略（STRAT）や転移（TRANSFER）は、子どもの自発発話／再述のみ採点対象とする。AIの提案や助言は除外する。  
+- ただし、AIの提案を子が自分の言葉で再述・採択し、適用の意思や実行・結果（例：「やってみる」「前回それで」「できた」）まで言及した場合は、子の STRAT/NEXT/EVAL として採点対象とする。  
+- 内部ではSRLスコア・転移判定・タグ付け・confidence算出・ターン注釈まで詳細に実施する。  
+- スタッフ表示用の文章（staff_view.notes）には英字タグ（STRAT/EVAL/TRANSFER/NEXT等）や専門用語を使わない。診断口調の断定は避け、支援メモ調の平易表現にする（最大2文・120字以内）。  
+- staff_view.notes には「今日気をつけるべきポイント（今日の様子の要点）」を1つ以上必ず含める。  
+- 否定や揶揄（例：「面白くない」「うざい」など）は AFFECT- とし、EVAL には含めない。  
+- EVAL の採点は、子が理由・手順を自発的に言語化した場合に加点する。AIの教示を模倣しただけの場合は EVAL=1 止まりとする。  
+
+【検出タグの定義（内部基準／出力に英字タグ名を直接書かない）】
+PLAN（計画/見通し）：先に／まず／〜してから／今日は〜する／準備  
+MON（進行監視）：前より／途中で／詰まった／速くなった／遅くなった／気づいた  
+EVAL（結果評価）：うまくいった／できた／難しかった／楽しかった／イライラした  
+STRAT（方略）：小さく試す／区切る／順番／見本／タイマー／深呼吸 など手立て  
+NEXT（次の一手）：次は〜する／明日は〜／最初の一手は〜  
+TRANSFER（転移）：前回／いつも／同じやり方／別のとき／家でも／体育でも／応用できた  
+AFFECT+/−（感情/調整）：気持ちの表明や切り替え・休憩など  
+
+【スコア基準（0–3）】
+0: 根拠なし／曖昧  
+1: 断片的（単発）  
+2: 複数かつ整合（例：EVAL→STRAT の連鎖が明確）  
+3: 循環完結（PLAN→MON→EVAL/STRAT→NEXT の1回以上が明確）
+
+【転移 presence（0–3）】
+0: なし  
+1: 示唆弱（曖昧・婉曲）  
+2: near（同領域・似状況での再適用が明確）  
+3: far（異領域：他教科・家庭・運動・対人などへの橋渡しが明確）
+
+【confidence（0.0–1.0）の目安】
+- 基礎：子発話からの有効引用数 / 5 （上限1.0）  
+- 転移：明示語があれば +0.2、曖昧なら −0.2（0.0〜1.0にクランプ）
+
+【flags（状態フラグ：必要最小限）】
+候補例：「短答継続」「AI話量過多」「役割曖昧」「低確度」「感情的な発言」「話題反復」「領域バイアス注意」「表現違反」  
+該当がなければ空配列。会話抜粋は入れない（抜粋は evidence 系へ）。
+
+【抽出・判定の手順】
+1) 行ごとに分割し、AI/子の役割を推定（矛盾があれば修正）。  
+2) 子どもの発話からSRL・転移・AFFECTのシグナルを最大5件抽出（25字以内で引用）。  
+3) 各抽出に主タグ1–2個を付与（PLAN/MON/EVAL/STRAT/NEXT/TRANSFER/AFFECT）。  
+4) 連鎖を探索（例：EVAL→STRAT、PLAN→MON→EVAL/STRAT→NEXT）。  
+5) スコアを算出し、transfer.presence/type/evidence/confidence を決定。  
+6) 状態に応じて flags を付与。  
+7) recommendation（次回の合言葉・最初の一手）を分析者向けに生成。  
+8) staff_view を作る：  
+    - staff_view.flags：現場でわかる短いラベルのみ  
+    - staff_view.evidence_spans：子の発話引用（最大5、各25字以内）。可能なら1件以上。該当発話が無い場合は空配列 []（ハルシネーション防止）。  
+    - staff_view.evidence_spans には evidence_core の quote をタグを外した形でコピーしてよい。  
+    - staff_view.notes：平易な支援メモ調（タグ語禁止／最大2文・120字）。「今日気をつけるべきポイント」を必ず含む。  
+
+【出力フォーマット（STRICT JSON、日本語簡潔）】
+{
+  "srl_scores": { "plan":0-3, "monitor":0-3, "evaluate":0-3, "strategy":0-3, "next_step":0-3, "overall_srl":0-3 },
+  "transfer": { "presence":0-3, "type":"none|near|far|mixed", "evidence":[{"quote":"..."}], "confidence":0.0-1.0 },
+  "evidence_core":[ {"tag":"EVAL","quote":"..."},{"tag":"STRAT","quote":"..."} ],
+  "flags":[ "短答継続", "AI話量過多", "役割曖昧", "低確度" ],
+  "recommendation":[ "次回の合言葉：〜", "最初の一手：〜" ],
+  "notes":"分析用の所見（分析用語使用可・60字以内推奨）",
+  "turn_annotations":[ {"turn_index":0,"speaker":"ai","tags":["..."],"quote":"..."} ],
+  "staff_view": {
+    "flags":[ "短答継続" ],
+    "evidence_spans":[ {"quote":"..."} ],
+    "notes":"スタッフ向けの平易なまとめ（タグ語禁止・最大2文・120字／今日気をつけるべきポイントを含む）"
+  },
+  "scaffolding": [
+    {
+      "form": "supportive|directive|option|ambiguous",
+      "acceptance": 0-2,
+      "evidence": { "ai_quote": "...", "child_quote": "..." }
+    }
+  ],
+  "meta": { "session_id":"...", "date":"...", "child_id":"...", "domain":"..." }
+}
+
+        【入力会話】
+        <<<TRANSCRIPT>>>`;
+
+        const showModal = (title, message, isHtml = false, onclose = null) => {
+            modalTitle.textContent = title;
+            if (isHtml) { modalMessage.innerHTML = message; } else { modalMessage.textContent = message; }
+            modal.classList.remove('hidden');
+            const closeHandler = () => { modal.classList.add('hidden'); closeModalButton.removeEventListener('click', closeHandler); if (onclose) onclose(); };
+            closeModalButton.addEventListener('click', closeHandler);
+        };
+
+        // ===== 生活調子モード：言い換え辞書（定数） =====
+        const DIMENSION_LIFE_JA = {
+            plan: '先の見通し',
+            monitor: '自分の様子に気づく',
+            evaluate: 'ふり返り',
+            strategy: 'やり方の工夫',
+            next_step: '次の一手',
+            overall_srl: '日常の調子',
+            transfer_presence: 'やり方の転用'
+        };
+        const SCORE_WORD_GENERIC = { 0: '見られず', 1: '少し見られた', 2: 'よく見られた', 3: 'とてもはっきり' };
+        const SCORE_WORD_BY_DIM = {
+            strategy: { 0: '工夫は見られず', 1: '小さな工夫あり', 2: '状況に合わせた工夫あり', 3: '主体的な工夫がはっきり' },
+            evaluate: { 0: 'ふり返りは見られず', 1: '簡単にふり返り', 2: '理由までふり返り', 3: '次につながるふり返り' }
+        };
+        const TRANSFER_STAGE_LABEL_LIFE = { 0: '今回は見当たりません', 1: '“芽”が少し見えます', 2: '似た場面で使えている', 3: '別の場面でも活かせている' };
+        const TRANSFER_TYPE_WORD_LIFE = { none: '該当なし', near: '似た場面で再利用', far: '別の場面でも応用', mixed: '場面により再利用/応用' };
+        const TREND_WORDS_LIFE = { strongUp: 'はっきり上向き', mildUp: '少し良い方向', flat: 'だいたい同じ調子', mildDown: '少し注意が必要', strongDown: 'はっきり下向き', insufficient: '（比較材料不足）' };
+        const STAFF_FLAG_MAP_LIFE = {
+            '短答継続': '返答が短め',
+            'AI話量過多': 'AIの発話が多め',
+            '役割曖昧': '誰の発話か分かりにくい部分あり',
+            '低確度': '解析の確信度が低め',
+            '感情的な発言': '感情の揺れが見られる',
+            '話題反復': '同じ話題が繰り返された',
+            '領域バイアス注意': '話題が特定に偏り気味',
+            '表現違反': '不適切表現の可能性'
+        };
+        const SECTION_TITLES_LIFE = { today: '【今日の様子】', month: '【1か月の中で見た今日】' };
+        const LINE_LABELS_LIFE = { state: '状態：', memo: 'メモ：', quote: '引用：' };
+        const NO_TEXT_LIFE = { state: '該当なし', memo: '（メモなし）', quote: '（引用なし）', compare: '（比較材料不足）', topFlags: 'よく見られた様子：目立つ反復はありません' };
+
+        // ----- Helper: parse past analyses from textarea -----
+        function parsePastAnalyses(text) {
+            if (!text || !text.trim()) return [];
+            const blocks = text.split(/---\s*単回解析結果\(JSON\)\s*---/g);
+            const results = [];
+            for (const b of blocks) {
+                const t = b.trim();
+                if (!t) continue;
+                // Try to locate a JSON object in the block
+                const start = t.indexOf('{');
+                const end = t.lastIndexOf('}');
+                if (start >= 0 && end > start) {
+                    const jsonStr = t.slice(start, end + 1);
+                    try {
+                        const obj = JSON.parse(jsonStr);
+                        results.push(obj);
+                    } catch {}
+                }
+            }
+            return results;
+        }
+
+        function numOrNull(x) { const n = Number(x); return Number.isFinite(n) ? n : null; }
+        function average(nums) {
+            const arr = nums.filter(n => Number.isFinite(n));
+            if (!arr.length) return null;
+            return arr.reduce((a,b)=>a+b,0) / arr.length;
+        }
+        function overallFromScores(s) {
+            if (!s || typeof s !== 'object') return null;
+            const direct = numOrNull(s.overall_srl);
+            if (direct !== null) return direct;
+            const parts = [s.plan, s.monitor, s.evaluate, s.strategy, s.next_step].map(numOrNull).filter(v=>v!==null);
+            return parts.length ? average(parts) : null;
+        }
+        function trendWordFromDelta(delta) {
+            if (typeof delta !== 'number' || !Number.isFinite(delta)) return TREND_WORDS_LIFE.insufficient;
+            const mag = Math.abs(delta);
+            if (delta > 0) return mag >= 1.0 ? TREND_WORDS_LIFE.strongUp : mag >= 0.3 ? TREND_WORDS_LIFE.mildUp : TREND_WORDS_LIFE.flat;
+            if (delta < 0) return mag >= 1.0 ? TREND_WORDS_LIFE.strongDown : mag >= 0.3 ? TREND_WORDS_LIFE.mildDown : TREND_WORDS_LIFE.flat;
+            return TREND_WORDS_LIFE.flat;
+        }
+
+        // ---- はしご掛け（scaffolding）からスタッフ向け一文を合成 ----
+        function pickRepresentativeScaffold(sc) {
+            const list = Array.isArray(sc) ? sc : (sc ? [sc] : []);
+            const hasEvidence = (it) => !!(it && it.evidence && (it.evidence.ai_quote||'').trim() && (it.evidence.child_quote||'').trim());
+            const prefer = (items, forms) => {
+                for (let i = items.length - 1; i >= 0; i--) {
+                    const it = items[i];
+                    if (!hasEvidence(it)) continue;
+                    if (forms && !forms.includes(it.form)) continue;
+                    return it;
+                }
+                return null;
+            };
+            const acc2 = list.filter(it => it && it.acceptance === 2);
+            const acc1 = list.filter(it => it && it.acceptance === 1);
+            const acc0 = list.filter(it => it && it.acceptance === 0);
+            return (
+                prefer(acc2, ['supportive','option']) ||
+                prefer(acc2, null) ||
+                prefer(acc1, null) ||
+                prefer(acc0, null)
+            );
+        }
+
+        function composeScaffoldSentence(scaffolding) {
+            const rep = pickRepresentativeScaffold(scaffolding);
+            if (!rep) return '';
+            const form = rep.form;
+            const acc  = rep.acceptance;
+            if (acc === 2) {
+                if (form === 'supportive') return 'やりやすくする提案が受け入れられ、実際の行動につながりました。';
+                if (form === 'option')     return '選べる提案に前向きに応じ、行動に移せました。';
+                if (form === 'directive')  return '具体的な進め方の提案に同意し、すぐに取り組めました。';
+                return '提案が受け入れられ、実際の行動につながりました。';
+            }
+            if (acc === 0) return '今日は提案が負担に感じられ、見送る様子でした。';
+            if (acc === 1) return '提案には触れましたが、実行は保留の様子でした。';
+            return '';
+        }
+
+        function summarizePast(singles) {
+            const n = singles.length;
+            if (!n) return { changeText: '過去データがありません。', stats: null };
+            const overalls = singles.map(s => overallFromScores(s.srl_scores)).filter(v=>v!==null);
+            const avgOverall = overalls.length ? average(overalls) : null;
+            const head = overalls.length ? overalls[0] : null;
+            const tail = overalls.length ? overalls[overalls.length-1] : null;
+            const diff = (head !== null && tail !== null) ? (tail - head) : NaN;
+            const trendWord = (overalls.length < 2) ? TREND_WORDS_LIFE.insufficient : trendWordFromDelta(diff);
+            const flagsAll = [];
+            for (const s of singles) {
+                const f = Array.isArray(s.flags) ? s.flags : (Array.isArray(s.staff_view?.flags) ? s.staff_view.flags : []);
+                if (Array.isArray(f)) flagsAll.push(...f);
+            }
+            const flagCounts = flagsAll.reduce((m,k)=>{ if(!k) return m; m[k]=(m[k]||0)+1; return m; },{});
+            const topFlagNames = Object.entries(flagCounts).sort((a,b)=>b[1]-a[1]).slice(0,2).map(([k])=> STAFF_FLAG_MAP_LIFE[k] || k);
+            const transferVals = singles.map(s => numOrNull(s.transfer?.presence)).filter(v=>v!==null);
+            const avgTransfer = transferVals.length ? average(transferVals) : null;
+
+            // スタッフ向け：数値を出さず言い回し中心
+            const parts = [];
+            parts.push(`${DIMENSION_LIFE_JA.overall_srl}: 傾向は「${trendWord}」`);
+            parts.push(
+                topFlagNames.length
+                    ? `よく見られた様子: ${topFlagNames.join('、')}`
+                    : 'よく見られた様子: 目立つ反復はありません'
+            );
+            let tLine = `${DIMENSION_LIFE_JA.transfer_presence}: まだ比較できません`;
+            if (avgTransfer !== null) {
+                const stage = Math.max(0, Math.min(3, Math.round(avgTransfer)));
+                tLine = `${DIMENSION_LIFE_JA.transfer_presence}: ${TRANSFER_STAGE_LABEL_LIFE[stage]}`;
+            }
+            parts.push(tLine);
+
+            return { changeText: parts.join('\n'), stats: { avgOverall, head, tail, delta: Number.isFinite(diff)?diff:null, trend: trendWord, topFlags: topFlagNames, avgTransfer } };
+        }
+
+        // ---- 複数回：はしご掛け（scaffolding）受容率トレンド ----
+        function toNum(x) { const n = Number(x); return Number.isFinite(n) ? n : null; }
+        function sliceTail(arr, n) { return arr.slice(Math.max(0, arr.length - n)); }
+        function acceptanceRate(records) {
+            let denom = 0; let numer = 0;
+            for (const s of records) {
+                const sc = s && s.scaffolding;
+                const list = Array.isArray(sc) ? sc : (sc ? [sc] : []);
+                if (list.length === 0) continue; // no scaffolding that day
+                denom += 1;
+                if (list.some(it => toNum(it.acceptance) === 2)) numer += 1; // その日どれかが受容なら受容
+            }
+            if (denom === 0) return { rate: 'n/a', denom: 0 };
+            return { rate: numer / denom, denom };
+        }
+        function acceptanceRateByForm(records, form) {
+            let denom = 0; let numer = 0;
+            for (const s of records) {
+                const sc = s && s.scaffolding;
+                const list = (Array.isArray(sc) ? sc : (sc ? [sc] : [])).filter(it => it.form === form);
+                if (list.length === 0) continue; // day has no such form
+                denom += 1;
+                if (list.some(it => toNum(it.acceptance) === 2)) numer += 1;
+            }
+            return denom === 0 ? null : (numer / denom);
+        }
+        function summarizeScaffoldingTrend(singlesAsc) {
+            const last30 = sliceTail(singlesAsc, 30);
+            const last7  = sliceTail(singlesAsc, 7);
+            const r30 = acceptanceRate(last30);
+            const r7  = acceptanceRate(last7);
+            const nScaffoldDays = r30.denom;
+            const rate30 = r30.rate;
+            const rate7  = r7.rate;
+            const delta = (typeof rate7 === 'number' && typeof rate30 === 'number') ? (rate7 - rate30) : 'n/a';
+            let change = 'insufficient';
+            if (nScaffoldDays >= 3) {
+                if (typeof delta === 'number') {
+                    if (delta >= 0.15) change = 'up';
+                    else if (delta <= -0.15) change = 'down';
+                    else change = 'flat';
+                } else {
+                    change = 'flat';
+                }
+            }
+            const by_form = {
+                supportive: { rate_30: acceptanceRateByForm(last30, 'supportive') ?? undefined, rate_7: acceptanceRateByForm(last7, 'supportive') ?? undefined },
+                directive:  { rate_30: acceptanceRateByForm(last30, 'directive') ?? undefined,  rate_7: acceptanceRateByForm(last7, 'directive') ?? undefined },
+                option:     { rate_30: acceptanceRateByForm(last30, 'option') ?? undefined,     rate_7: acceptanceRateByForm(last7, 'option') ?? undefined }
+            };
+            return {
+                window_lookback: 30,
+                n_scaffold_days: nScaffoldDays,
+                rate_30: typeof rate30 === 'number' ? +rate30.toFixed(2) : 'n/a',
+                rate_7:  typeof rate7  === 'number' ? +rate7.toFixed(2)  : 'n/a',
+                delta_7_vs_30: typeof delta === 'number' ? +delta.toFixed(2) : 'n/a',
+                change,
+                by_form
+            };
+        }
+
+        const runAnalysis = async () => {
+            const conversationText = conversationHistoryTextarea.value.trim();
+            const API_KEY = (apiKeyInput.value || '').trim();
+            if (!conversationText) { showModal('エラー', '会話履歴が入力されていません。'); return; }
+            if (!API_KEY) { showModal('エラー', 'APIキーを入力してください。'); return; }
+
+            showModal('会話終了→内部解析...', '<div class="flex justify-center items-center"><div class="loader"></div></div>', true);
+            demoButton.disabled = true;
+
+            const fullPrompt = basePrompt.replace('<<<TRANSCRIPT>>>', conversationText);
+
+            try {
+                const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${API_KEY}`
+                    },
+                    body: JSON.stringify({
+                        model: 'gpt-4o-mini',
+                        messages: [{ role: 'user', content: fullPrompt }],
+                        response_format: { type: 'json_object' }
+                    })
+                });
+
+                if (!response.ok) {
+                    let msg = `HTTP ${response.status}`;
+                    try { const e = await response.json(); msg = e.error?.message || msg; } catch {}
+                    throw new Error(msg);
+                }
+
+                const result = await response.json();
+                const jsonText = result.choices?.[0]?.message?.content;
+                const data = JSON.parse(jsonText);
+
+                const sv = data.staff_view || {};
+                const rawFlags = (Array.isArray(sv.flags) && sv.flags.length) ? sv.flags : (Array.isArray(data.flags) && data.flags.length ? data.flags : []);
+                const flagsText = rawFlags.length ? rawFlags.map(f => STAFF_FLAG_MAP_LIFE[f] || f).join('、') : NO_TEXT_LIFE.state;
+                const quotes = Array.isArray(sv.evidence_spans)
+                    ? sv.evidence_spans.map(e => (e && typeof e.quote === 'string' ? e.quote.trim() : '')).filter(Boolean).slice(0,3)
+                    : [];
+                const quoteLine = quotes.length
+                    ? `${LINE_LABELS_LIFE.quote}${quotes.map(q => `・${q}`).join('\n')}`
+                    : `${LINE_LABELS_LIFE.quote}${NO_TEXT_LIFE.quote}`;
+                const baseNotes = (typeof sv.notes === 'string' && sv.notes.trim()) ? sv.notes.trim() : (typeof data.notes === 'string' ? data.notes.trim() : '');
+                const scaffoldSentence = composeScaffoldSentence(data.scaffolding);
+                const notesMerged = [baseNotes, scaffoldSentence].filter(Boolean).join(' ');
+                const notesFinal  = notesMerged ? (notesMerged.length > 120 ? (notesMerged.slice(0,118) + '…') : notesMerged) : NO_TEXT_LIFE.memo;
+
+                // Past multi summary
+                const pastSingles = parsePastAnalyses(pastAnalysesTextarea?.value || '');
+                const pastSummary = summarizePast(pastSingles);
+                const scTrend = summarizeScaffoldingTrend(pastSingles);
+
+                // 保存用の複数回分析JSON（DB保存想定の最小形）
+                const ms = pastSummary.stats || {};
+                const multiSave = {
+                    window: { n_records: pastSingles.length },
+                    srl_overall: {
+                        average: (typeof ms.avgOverall === 'number') ? +ms.avgOverall.toFixed(2) : null,
+                        head: (typeof ms.head === 'number') ? +ms.head.toFixed(2) : null,
+                        recent: (typeof ms.tail === 'number') ? +ms.tail.toFixed(2) : null,
+                        delta: (typeof ms.delta === 'number') ? +ms.delta.toFixed(2) : null,
+                        trend: ms.trend || null
+                    },
+                    top_flags: Array.isArray(ms.topFlags) ? ms.topFlags : [],
+                    transfer: { average_presence: (typeof ms.avgTransfer === 'number') ? +ms.avgTransfer.toFixed(2) : null },
+                    scaffolding_trend: scTrend || null,
+                    generated_at: new Date().toISOString()
+                };
+                if (multiJsonOut) {
+                    try { multiJsonOut.value = JSON.stringify(multiSave, null, 2); } catch {}
+                }
+
+                const todaySection = [
+                    SECTION_TITLES_LIFE.today,
+                    `${LINE_LABELS_LIFE.state}${flagsText}`,
+                    `${LINE_LABELS_LIFE.memo}${notesFinal}`,
+                    quoteLine
+                ].filter(Boolean).join('\n');
+
+                let scTrendLine = '';
+                if (scTrend && typeof scTrend.n_scaffold_days === 'number' && scTrend.n_scaffold_days >= 3) {
+                    if (scTrend.change === 'up') scTrendLine = '提案の受け入れは、最近は増えてきています。';
+                    else if (scTrend.change === 'down') scTrendLine = '最近は提案に応じにくい様子が続いています。';
+                    else if (scTrend.change === 'flat') scTrendLine = '提案の受け入れは、この1か月と同程度の調子です。';
+                }
+                const changeSection = [
+                    SECTION_TITLES_LIFE.month,
+                    pastSummary.changeText,
+                    scTrendLine
+                ].filter(Boolean).join('\n');
+
+                const displayText = [ todaySection, '', changeSection ].join('\n');
+
+                showModal(
+                    'メール模擬　タイトル：日付＋ニックネーム＋会話からの状態像',
+                    `<pre>${displayText || 'スタッフビューに表示対象が見つかりませんでした。'}</pre>`,
+                    true,
+                    () => {
+                        try {
+                            if (!pastAnalysesTextarea) return;
+                            const existing = pastAnalysesTextarea.value || '';
+                            const sep = '\n\n--- 単回解析結果(JSON) ---\n';
+                            pastAnalysesTextarea.value = existing.replace(/\s*$/,'') + sep + (jsonText || '') + '\n';
+                        } catch (e) {
+                            console.error('Append result JSON failed:', e);
+                        }
+                    }
+                );
+            } catch (error) {
+                console.error('Error:', error);
+                const corsHint = 'CORS でブロックされた場合は、ローカルHTMLから直接APIを呼び出すのではなく、サーバ経由のプロキシで中継してください。';
+                showModal('エラー', `解析中にエラーが発生しました。\n\n${error.message}\n\nAPIキーが正しく設定されているか、CORSやネットワーク状況を確認してください。\n${corsHint}`);
+            } finally {
+                demoButton.disabled = false;
+            }
+        };
+
+        demoButton.addEventListener('click', () => {
+            showModal('デモ開始', '通常の会話終了時、「終了ボタン」が押されます。その後内部処理→メール送信の様子をメッセージボックスでデモします。', false, runAnalysis);
+        });
+    </script>
+</body>
+</html>
